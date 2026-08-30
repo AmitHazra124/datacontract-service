@@ -1,0 +1,153 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Per-datacontract integration adapter: IoT Core -> IoT Rule -> Kinesis Stream -> Lambda",
+  "Parameters": {
+    "IoTTopicName": {
+      "Type": "String",
+      "Description": "MQTT topic that publishes ingest messages, e.g. datacontracts/{id}/ingest"
+    },
+    "ShardCount": {
+      "Type": "Number",
+      "Default": 1,
+      "Description": "Number of shards for the Kinesis ingest stream"
+    }
+  },
+  "Resources": {
+    "IngestStream": {
+      "Type": "AWS::Kinesis::Stream",
+      "Properties": {
+        "Name": { "Fn::Sub": "${AWS::StackName}-ingest-stream" },
+        "ShardCount": { "Ref": "ShardCount" },
+        "RetentionPeriodHours": 24
+      }
+    },
+    "IoTRuleRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${AWS::StackName}-iot-rule-role" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "iot.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "PutIngestRecords",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "kinesis:PutRecord",
+                  "Resource": { "Fn::GetAtt": ["IngestStream", "Arn"] }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "IoTTopicRule": {
+      "Type": "AWS::IoT::TopicRule",
+      "Properties": {
+        "RuleName": {
+          "Fn::Join": [
+            "_",
+            [
+              { "Fn::Join": ["_", { "Fn::Split": ["-", { "Ref": "AWS::StackName" }] }] },
+              "ingest_rule"
+            ]
+          ]
+        },
+        "TopicRulePayload": {
+          "Sql": { "Fn::Sub": "SELECT * FROM '${IoTTopicName}'" },
+          "AwsIotSqlVersion": "2016-03-23",
+          "RuleDisabled": false,
+          "Actions": [
+            {
+              "Kinesis": {
+                "StreamName": { "Ref": "IngestStream" },
+                "PartitionKey": "${newuuid()}",
+                "RoleArn": { "Fn::GetAtt": ["IoTRuleRole", "Arn"] }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "LambdaExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${AWS::StackName}-lambda-role" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "ReadIngestStream",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "kinesis:GetRecords",
+                    "kinesis:GetShardIterator",
+                    "kinesis:DescribeStream",
+                    "kinesis:ListShards"
+                  ],
+                  "Resource": { "Fn::GetAtt": ["IngestStream", "Arn"] }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "IntegrationFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": { "Fn::Sub": "${AWS::StackName}-integration" },
+        "Runtime": "nodejs22.x",
+        "Handler": "index.handler",
+        "Role": { "Fn::GetAtt": ["LambdaExecutionRole", "Arn"] },
+        "Timeout": 60,
+        "MemorySize": 256,
+        "Code": {
+          "S3Bucket": "${INTEGRATION_CODE_BUCKET}",
+          "S3Key": "${INTEGRATION_CODE_KEY}"
+        }
+      }
+    },
+    "IngestEventSourceMapping": {
+      "Type": "AWS::Lambda::EventSourceMapping",
+      "Properties": {
+        "EventSourceArn": { "Fn::GetAtt": ["IngestStream", "Arn"] },
+        "FunctionName": { "Ref": "IntegrationFunction" },
+        "StartingPosition": "LATEST",
+        "BatchSize": 100
+      }
+    }
+  },
+  "Outputs": {
+    "IngestStreamName": { "Value": { "Ref": "IngestStream" } },
+    "IngestStreamArn": { "Value": { "Fn::GetAtt": ["IngestStream", "Arn"] } },
+    "TopicRuleName": { "Value": { "Ref": "IoTTopicRule" } },
+    "IntegrationFunctionArn": { "Value": { "Fn::GetAtt": ["IntegrationFunction", "Arn"] } }
+  }
+}

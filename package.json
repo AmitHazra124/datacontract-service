@@ -1,0 +1,30 @@
+{
+  "name": "datacontracts-service",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "yarn@1.22.22",
+  "scripts": {
+    "build": "rm -rf dist dist-ia && esbuild src/integrationLamda/index.ts --bundle --platform=node --target=node22 --outfile=dist/index.js --minify && esbuild src/integrationArtifactLambda/integration-artifact.ts --bundle --platform=node --target=node22 --outfile=dist-ia/index.js --minify",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.848.0",
+    "@aws-sdk/client-dynamodb": "^3.848.0",
+    "@aws-sdk/client-s3": "^3.848.0",
+    "@aws-sdk/client-sfn": "^3.848.0",
+    "archiver": "^7.0.1",
+    "aws-cdk-lib": "^2.214.0",
+    "constructs": "^10.4.2",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/archiver": "^8.0.0",
+    "@types/aws-lambda": "^8.10.152",
+    "@types/node": "^22.20.1",
+    "aws-cdk": "^2.214.0",
+    "esbuild": "^0.25.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  }
+}
