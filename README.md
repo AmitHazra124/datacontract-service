@@ -43,4 +43,4 @@ Configure these variables in the `aws-dev` CircleCI context:
 - `AWS_REGION`
 - `AWS_ACCOUNT_ID`
 
-The AWS SDK and CDK read the exported AWS credentials directly from the process environment. No credentials are stored in `manifest.yml`.
+The AWS SDK and CDK read the exported AWS credentials directly from the process environment. No credentials are stored in `manifest.yml`.# datacontract-service
