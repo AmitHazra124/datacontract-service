@@ -129,6 +129,7 @@ export class DatacontractServiceStack extends cdk.Stack {
       }),
       resultPath: '$.artifact',
     });
+    
     const packageArtifact = new tasks.LambdaInvoke(this, 'PackageIntegrationAdapter', {
       lambdaFunction: artifactHandler,
       payloadResponseOnly: true,
@@ -166,16 +167,16 @@ export class DatacontractServiceStack extends cdk.Stack {
       resultPath: '$.status',
     });
 
-    const workflow = new sfn.StateMachine(this, 'ProvisioningWorkflow', {
+    const workflow = new sfn.StateMachine(this, 'DataContractStepFunction', {
       definitionBody: sfn.DefinitionBody.fromChainable(
         prepareArtifact.next(packageArtifact).next(provisionStack).next(updateStatus),
       ),
       timeout: cdk.Duration.minutes(15),
     });
 
-    const startExecution = new lambdaNodejs.NodejsFunction(this, 'StartProvisioning', {
+    const apiHandlerLambda = new lambdaNodejs.NodejsFunction(this, 'ApiHandlerLambda', {
       runtime: lambda.Runtime.NODEJS_22_X,
-      entry: 'src/startexecutionLamda/start-execution.ts',
+      entry: 'src/apihandlerLambda/apihandlerLambda.ts',
       depsLockFilePath: 'yarn.lock',
       timeout: cdk.Duration.seconds(15),
       environment: {
@@ -183,20 +184,23 @@ export class DatacontractServiceStack extends cdk.Stack {
         DATACONTRACTS_TABLE_NAME: datacontractsTable.tableName,
       },
     });
-    workflow.grantStartExecution(startExecution);
-    datacontractsTable.grantWriteData(startExecution);
 
-    const api = new apigateway.RestApi(this, 'DatacontractApi', {
-      restApiName: 'datacontract-service',
+    const api = new apigateway.RestApi(this, 'DataContractApi', {
+      restApiName: 'datacontract-service-api',
       deployOptions: { stageName: 'v1' },
     });
     
     const stackResource = api.root.addResource('stacks');
 
-    stackResource.addMethod('POST', new apigateway.LambdaIntegration(startExecution));
-    stackResource.addMethod('GET', new apigateway.LambdaIntegration(startExecution));
-    stackResource.addMethod('PUT', new apigateway.LambdaIntegration(startExecution));
-    stackResource.addMethod('DELETE', new apigateway.LambdaIntegration(startExecution));
+    stackResource.addMethod('POST', new apigateway.LambdaIntegration(apiHandlerLambda));
+    stackResource.addMethod('GET', new apigateway.LambdaIntegration(apiHandlerLambda));
+    stackResource.addMethod('PUT', new apigateway.LambdaIntegration(apiHandlerLambda));
+    stackResource.addMethod('DELETE', new apigateway.LambdaIntegration(apiHandlerLambda));
+
+
+    workflow.grantStartExecution(apiHandlerLambda);
+    datacontractsTable.grantWriteData(apiHandlerLambda);
+
 
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.urlForPath('/stacks') });
     new cdk.CfnOutput(this, 'StateMachineArn', { value: workflow.stateMachineArn });
