@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { createHash } from 'node:crypto';
 import { createWriteStream, promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -77,11 +78,17 @@ export async function handler(request: ArtifactRequest) {
     void archive.finalize();
   });
 
-  const zipKey = `${prefix}/integration-adapter.zip`;
+  const artifactHash = createHash('sha256')
+    .update(await fs.readFile(join(folder, 'index.js')))
+    .update(await fs.readFile(join(folder, 'datacontract.json')))
+    .digest('hex')
+    .slice(0, 16);
+  const zipKey = `${prefix}/integration-adapter-${artifactHash}.zip`;
+  const archiveBody = await fs.readFile(zipPath);
   await s3.send(new PutObjectCommand({
     Bucket: request.destinationBucket,
     Key: zipKey,
-    Body: await fs.readFile(zipPath),
+    Body: archiveBody,
     ContentType: 'application/zip',
     ServerSideEncryption: 'AES256',
   }));
